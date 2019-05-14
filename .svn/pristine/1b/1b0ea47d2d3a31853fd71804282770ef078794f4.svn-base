@@ -1,0 +1,433 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+			   xmlns:s="library://ns.adobe.com/flex/spark" 
+			   xmlns:mate="http://mate.asfusion.com/"
+			   xmlns:controllers="com.tss.squatch.controllers.*"
+			   applicationDPI="160" creationComplete="init()">
+	
+	<fx:Script>
+		<![CDATA[
+			import com.adobe.audio.format.WAVWriter;
+			import com.tss.squatch.events.CameraEvent;
+			import com.tss.squatch.events.SiteEvent;
+			import com.tss.squatch.events.VoiceEvent;
+			import com.tss.squatch.sPicture;
+			import com.tss.squatch.smap;
+			import com.tss.squatch.utils.FileUtility;
+			import com.tss.squatch.utils.TSSAudio;
+			import com.tss.squatch.utils.TSSPicture;
+			import com.tss.squatch.views.VoiceMemo;
+			
+			import flash.display.Bitmap;
+			import flash.events.ErrorEvent;
+			import flash.events.Event;
+			import flash.events.MediaEvent;
+			
+			import mx.managers.PopUpManager;
+			
+			import spark.components.Image;
+			import spark.components.TitleWindow;
+
+			private var deviceCameraApp:CameraUI = new CameraUI();
+			private var imageLoader:Loader; 
+			
+			import flash.sensors.Geolocation;
+			
+			import org.openscales.core.feature.CustomMarker;
+			import org.openscales.core.feature.PointFeature;
+			import org.openscales.core.layer.FeatureLayer;
+			import org.openscales.core.style.Style;
+			import org.openscales.geometry.basetypes.Location;
+			import org.openscales.proj4as.ProjProjection;
+			
+			private var markers:FeatureLayer;
+			private var currentLoc:PointFeature;
+			private var newCenter:Location; 
+
+			private function init():void
+			{
+				//mobileMap.setInitialMapExtent(-97, 33, -96, 34);	
+				markers = new FeatureLayer("Current Location"); 
+				markers.projection = new ProjProjection("EPSG:4326"); 
+				markers.generateResolutions(19); 
+				markers.style = Style.getDefaultPointStyle();
+				fxMap.map.addLayer(markers);
+				newCenter = new Location(-97.833,45.767);
+				currentCoords.text = "-97.833,45.767";
+				currentLoc = PointFeature.createPointFeature(newCenter); 
+				markers.addFeature(currentLoc);
+			}
+						
+			public function showCameraControl(event:CameraEvent):void{
+				//var tssCamera:TSSCamera = new TSSCamera();
+				//PopUpManager.addPopUp(tssCamera, this.parent, false);
+				
+				if( CameraUI.isSupported )
+				{
+					trace( "Initializing camera..." );
+					
+					deviceCameraApp.addEventListener( MediaEvent.COMPLETE, imageCaptured );
+					deviceCameraApp.addEventListener( Event.CANCEL, captureCanceled );
+					deviceCameraApp.addEventListener( ErrorEvent.ERROR, cameraError );
+					deviceCameraApp.launch( MediaType.IMAGE );
+					
+					
+				}
+				else
+				{
+					trace( "Camera interface is not supported.");
+				}
+			}
+
+			private function imageCaptured( event:MediaEvent ):void
+			{
+				trace( "Media captured..." );
+				
+				var imagePromise:MediaPromise = event.data;
+				
+				if( imagePromise.isAsync )
+				{
+					trace( "Asynchronous media promise." );
+					imageLoader = new Loader();
+					imageLoader.contentLoaderInfo.addEventListener( Event.COMPLETE, asyncImageLoaded );
+					imageLoader.addEventListener( IOErrorEvent.IO_ERROR, cameraError );
+					imageLoader.loadFilePromise( imagePromise );
+				}
+				else
+				{
+					trace( "Synchronous media promise." );
+					imageLoader.loadFilePromise( imagePromise );
+					showMedia( imageLoader );
+				}
+			}
+			
+			private function captureCanceled( event:Event ):void
+			{
+				trace( "Media capture canceled." );
+				
+				//NativeApplication.nativeApplication.exit();
+			}
+
+			private function cameraError(error:ErrorEvent):void
+			{
+				trace( "Error:" +error.toString());
+				//NativeApplication.nativeApplication.exit();
+			}
+
+			private function asyncImageLoaded( event:Event ):void
+			{
+				trace( "Media loaded in memory." );
+				//showMedia( imageLoader );
+				var tmpEvent:CameraEvent = new CameraEvent(CameraEvent.NEWPICTURE, true, true);
+				var displayObject:DisplayObject = imageLoader.getChildAt(0);
+				tmpEvent.bitmap = displayObject as Bitmap;;
+				tmpEvent.memo = "test";
+				dispatchEvent(tmpEvent);
+			}
+			
+			private function showMedia( loader:Loader ):void
+			{
+				var tmpEvent:CameraEvent = new CameraEvent(CameraEvent.NEWPICTURE, true, true);
+				var displayObject:DisplayObject = imageLoader.getChildAt(0);
+				tmpEvent.bitmap = displayObject as Bitmap;;
+				tmpEvent.memo = "test";
+				dispatchEvent(tmpEvent);
+			}
+
+			public function showFullImage(event:CameraEvent):void
+			{
+				var clkimage:Bitmap = event.tsspicture.bitmap as Bitmap;				
+				var pimage:Image = new Image();
+				pimage.source = clkimage;
+				pimage.width=1280;
+				pimage.height=800;
+				pimage.doubleClickEnabled = true;
+				pimage.addEventListener(MouseEvent.DOUBLE_CLICK, closeImagePopup);
+				
+				PopUpManager.addPopUp(pimage, this, false);
+			}
+			
+			protected function closeImagePopup(e:Event):void{
+				var img:Image = e.currentTarget as Image;
+				PopUpManager.removePopUp(img);
+			}
+
+			
+			public function handlePicture(event:CameraEvent):void
+			{
+				var bmp:Bitmap = event.bitmap;
+				var tmpImage:TSSPicture = new TSSPicture();
+				tmpImage.source = "images/camera-icon.png";
+				tmpImage.bitmap = bmp;
+				tmpImage.x = 40;
+				tmpImage.y = 40;
+				tmpImage.width = 270;
+				tmpImage.height =270;
+				
+			
+				//			stickDrawing.addChild(tmpImage);
+				//			
+				//			var fileName:String = new Date().time + ".png";
+				//			var tmpGT:GeoTag = new GeoTag();
+				//			tmpGT.cached_route_id = 1;
+				//			tmpGT.begin_mile_point = getCurrentMP();
+				//			tmpGT.end_mile_point = 0;
+				//			tmpGT.image_file_name = fileName;
+				//			tmpGT.text_memo = event.memo;
+				//			dbManager.addGeoTag(tmpGT);
+				//fileUtility.WritePicture(fileName, bmp);
+			}
+			
+			protected function btnPicture_clickHandler(event:MouseEvent):void
+			{
+				var testPicture:sPicture = new sPicture();
+			}
+			
+					
+
+			public function showVoiceControl(event:VoiceEvent):void
+			{
+				if(Microphone.isSupported)
+				{
+					trace("Initializing microphone...");
+					
+					var audioRecord:TitleWindow=PopUpManager.createPopUp(this,VoiceMemo,false)as TitleWindow;
+					audioRecord.x=800;
+					audioRecord.y=500;
+					PopUpManager.centerPopUp(audioRecord);
+				}
+				else
+				{
+					trace("Microphone is not supported");
+				}
+
+			}
+			
+			protected function voiceCapture(event:Event):void
+			{
+				
+				//PopUpManager.centerPopUp(audioRecord);
+								
+				var tmpEvent:VoiceEvent = new VoiceEvent(VoiceEvent.OPENCONTROL, true, true);
+				dispatchEvent(tmpEvent);
+			}
+
+			public function handleVoiceMemo(event:VoiceEvent):void
+			{
+				
+				if(!(event.byteArray.length > 0))
+				{
+					trace("voice memo is null");
+					return;
+				}
+				
+				var soundBytes:ByteArray= new ByteArray();
+				soundBytes = event.byteArray;
+				var fileName:String = Date().time.toString() +".wav";
+
+				var tmpImage:TSSAudio = new TSSAudio();
+				tmpImage.source = "images/microphone-icon.png";
+				tmpImage.soundBytes = event.byteArray;
+				tmpImage.x = 40;
+				tmpImage.y = 40;
+				tmpImage.width = 40;
+				tmpImage.height = 40;
+				
+				//saving the sound file				
+				try{
+					var fileUtility:FileUtility = new FileUtility();
+					fileUtility.saveToWAV(soundBytes, fileName);
+					
+				}
+				catch(e:Error){
+					trace(e.message);
+				}
+
+//				var fTemp:File = new File("/sdcard/VoiceMemos/" + fileName);
+//				var writer:WAVWriter = new WAVWriter();
+//				writer.numOfChannels=2;
+//				writer.sampleBitRate=16;
+//				writer.samplingRate=44100;
+//				soundBytes.position=0;
+//				var stream:FileStream=new FileStream();
+//				stream.open(fTemp,FileMode.WRITE);
+//				writer.processSamples(stream, soundBytes, 44100,2);
+//				
+//				stream.close();
+				//
+				
+				
+//				stickDrawing.addChild(tmpImage);
+				
+				
+//				var tmpGT:GeoTag = new GeoTag();
+//				tmpGT.cached_route_id = 1;
+//				tmpGT.begin_mile_point = getCurrentMP();
+//				tmpGT.end_mile_point = 0;
+//				tmpGT.image_file_name = fileName;
+//				tmpGT.text_memo = "";
+//				dbManager.addGeoTag(tmpGT);
+			}
+			
+			protected function startGPS(event:Event):void
+			{
+				var source:CheckBox = event.target as CheckBox;
+				if (source.selected)
+				{
+					var internalGPS:Geolocation = new Geolocation();
+					internalGPS.setRequestedUpdateInterval(10000);
+					internalGPS.addEventListener(GeolocationEvent.UPDATE, internalGPSUpdateHandler);
+				} else
+				{
+					internalGPS.removeEventListener(GeolocationEvent.UPDATE, internalGPSUpdateHandler);
+				}
+			}
+			
+			private function internalGPSUpdateHandler(event:GeolocationEvent):void
+			{
+					trace("Raw GPS:" + event.longitude + "," + event.latitude);		
+					if (event.horizontalAccuracy < 40)
+					{
+						newCenter = new Location(event.longitude, event.latitude);
+						markers.removeFeature(currentLoc);
+						currentLoc = PointFeature.createPointFeature(newCenter); 
+						markers.addFeature(currentLoc);
+						fxMap.map.moveTo(newCenter, fxMap.map.zoom, true);
+						var newX:String = event.longitude.toString().substr(0,7);
+						var newY:String = event.latitude.toString().substr(0,7);
+						
+						currentCoords.text= newX + "," + newY;
+						
+					}
+			}
+			
+			public function newSquatchSite(evt:Event):void
+			{
+				
+				var squatchFeature:CustomMarker = CustomMarker.createUrlBasedMarker("images/bfmarker.png", newCenter);
+				markers.addFeature(squatchFeature);
+				mapGroup.visible = false;
+				mapGroup.height = 0;
+				mapGroup.width = 0;
+				formGroup.visible = true;
+				formGroup.percentHeight = 100;
+				formGroup.percentWidth = 100;
+			}
+			
+			protected function closeForm(evt:Event):void
+			{
+				mapGroup.visible = true;
+				mapGroup.percentHeight = 100;
+				mapGroup.percentWidth = 100;
+				formGroup.visible = false;
+				formGroup.height = 0;
+				formGroup.width = 0;
+			}
+			
+			private function toggleBtn(e:MouseEvent):void{
+				if(e.currentTarget.rotation == 0)
+					panelOut.play();
+				else 
+					panelIn.play();
+			}
+			
+			protected function closeProgram(evt:Event):void
+			{
+				NativeApplication.nativeApplication.exit(0);
+			}
+
+		]]>
+	</fx:Script>
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+		<controllers:MainEventMap id="EventMap"/>
+		
+		<s:Move id="panelOut" target="{toolPanel}" yTo="0" effectEnd="btn.rotation=180" 
+				duration="1000" />
+		<s:Move id="panelIn" target="{toolPanel}" yTo="-50" effectEnd="btn.rotation=0" 
+				 duration="1000" /> 
+	</fx:Declarations>
+	<s:VGroup id="toolPanel" width="100%" height="70" y="-50" horizontalAlign="center"  depth="99" >
+		<s:HGroup>
+			<s:VGroup>
+				<s:CheckBox id="chkGPS" label="GPS Tracking" change="startGPS(event)" />
+				<s:Label id="currentCoords" text=""/>
+			</s:VGroup>
+			<s:Button id="btnNewSite" width="50" height="50" click="newSquatchSite(event)"
+					  icon="images/bf.png"/>
+			<s:Button width="50" height="50" icon="images/adding.png"/>	
+			<s:Button id="btnExit" width="50" height="50" icon="images/exit.png" click="closeProgram(event)" />
+		</s:HGroup>
+		<s:HGroup>
+			<s:Image id="btn"  source="images/arrow_down.png" click="toggleBtn(event)"  height="25"  />
+		</s:HGroup>
+		
+	</s:VGroup>
+	
+	
+	<s:VGroup id="grpMap" x="20" y="5" width="100%" height="100%" depth="1">
+		<!--<squatch1:MobileMap id="mobileMap" width="270" height="400" />-->
+		<s:Group id="formGroup" visible="false" width="0" height="0"  >
+			<s:VGroup horizontalAlign="center">
+				<s:Spacer height="70"/>
+				<s:HGroup>
+					<s:Label text="Site Name" />
+					<s:TextInput id="siteName" x="100" width="200"/>
+				</s:HGroup>
+				<s:HGroup>
+					<s:Label text="Description"/>
+					<s:TextArea id="siteDesc" x="100"  width="200" height="140" />
+				</s:HGroup>
+				<s:HGroup>
+					<s:CheckBox id="sighting" label="Visual"/>
+					<s:CheckBox id="call" label="Auditory"/>
+					<s:CheckBox id="tracks" label="Tracks"/>
+				</s:HGroup>
+				<s:HGroup>
+					<s:CheckBox id="nest" label="Nesting"/>
+					<s:CheckBox id="other" label="Other Evidence"/>
+				</s:HGroup>
+				<s:HGroup horizontalAlign="center">
+					<s:Button id="btnPicture" width="50" height="50" icon="images/camera-icon.png" click="btnPicture_clickHandler(event)"/>
+					<s:Button id="btnVideo" width="50" height="50" icon="images/web-camera-icon.png"/>
+					<s:Button id="buttonAudio" width="50" height="50" icon="images/microphone-icon.png" click="voiceCapture(event)"/>
+				</s:HGroup>
+				<s:HGroup horizontalAlign="center">
+					<s:Button id="btnSave" label="Save" click="closeForm(event)" />
+					<s:Button id="btnCancel" label="Cancel" click="closeForm(event)" />
+				</s:HGroup>
+				
+			</s:VGroup>
+		</s:Group>
+		<s:Group id="mapGroup" visible="true" xmlns="http://openscales.org" xmlns:s="library://ns.adobe.com/flex/spark" 
+				 xmlns:fx="http://ns.adobe.com/mxml/2009" width="100%" height="100%">
+			
+			<Map id="fxMap" width="100%" height="100%" zoom="13" center="-84.375,34.077">
+				
+				<Mapnik id="basemap" name="base" proxy="http://www.openscales.org/proxy.php?url="/>
+				
+				<!--<WMSC name="Nasa" url="http://openscales.org/geoserver/gwc/service/wms"
+					  layers="bluemarble" format="image/jpeg" maxExtent="-180,-90,180,90" />-->
+				
+				<MaxExtent left="-180" bottom="-90" right="180" top="90"/>
+				
+				<Spinner x="{width / 2}" y="{height / 2}"/>
+				<MousePosition x="10" y="{height-20}" displayProjection="EPSG:4326"/>
+				<DragHandler/>
+				<ClickHandler/>
+				<WheelHandler/>
+				<Zoom id="zoom" y="100"/>
+				<!--<PanZoom id="panZoom" x="10" y="10" />-->
+				
+				<!--<TraceInfo x="{width-200}" y="0" />-->
+				
+			</Map>
+			
+		</s:Group>
+		<!--<components:toolbar fxMap="{fxMap}" />-->
+		<!--<s:TextInput id="siteX"/>
+		<s:TextInput id="siteY"/>
+		<s:TextInput id="siteDescription"/>-->
+	</s:VGroup>
+</s:Application>
